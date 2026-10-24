@@ -126,12 +126,22 @@ class GSCII_Export {
 		if ( ! $cond ) {
 			return array();
 		}
-		return array_map( 'intval', $wpdb->get_col( // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL
+		$ids     = array_map( 'intval', $wpdb->get_col( // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL
 			"SELECT tt.term_id FROM {$wpdb->term_taxonomy} tt
 			 LEFT JOIN {$wpdb->termmeta} v ON v.term_id = tt.term_id AND v.meta_key = '_gscii_verdict'
-			 WHERE tt.taxonomy IN ($tin) AND tt.count > 0 AND (" . implode( ' OR ', $cond ) . ')
-			 ORDER BY tt.count DESC, tt.term_id ASC'
+			 WHERE tt.taxonomy IN ($tin) AND (" . implode( ' OR ', $cond ) . ')
+			 ORDER BY tt.term_id ASC'
 		) );
+		$totals  = GSCII_Store::term_totals( $taxes );
+		$allowed = array_flip( GSCII_Store::countable_term_ids( $taxes ) );
+		$ids     = array_values( array_filter( $ids, function ( $id ) use ( $allowed ) {
+			return isset( $allowed[ $id ] );
+		} ) );
+		usort( $ids, function ( $a, $b ) use ( $totals ) {
+			$d = ( isset( $totals[ $b ] ) ? $totals[ $b ] : 0 ) - ( isset( $totals[ $a ] ) ? $totals[ $a ] : 0 );
+			return $d ? $d : $a - $b;
+		} );
+		return $ids;
 	}
 
 	/** post IDهای منتشرشده‌ی منطبق با وضعیت‌ها؛ جدیدترین اول. */

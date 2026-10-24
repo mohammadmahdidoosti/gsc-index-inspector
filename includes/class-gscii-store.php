@@ -71,9 +71,32 @@ class GSCII_Store {
 
 	/* ---------- Daily quota ---------- */
 
+	/** گوگل سهمیه‌ی روزانه را نیمه‌شب به وقت Pacific (آمریکا) ریست می‌کند. */
+	private static function pacific_now() {
+		return new DateTime( 'now', new DateTimeZone( 'America/Los_Angeles' ) );
+	}
+
 	private static function quota_key() {
-		// گوگل سهمیه را بر اساس ساعت Pacific ریست می‌کند؛ برای سادگی تاریخ UTC.
-		return 'gscii_quota_' . gmdate( 'Ymd' );
+		return 'gscii_quota_' . self::pacific_now()->format( 'Ymd' );
+	}
+
+	/** زمان شارژ شدن دوباره‌ی سهمیه (timestamp). */
+	public static function quota_reset_ts() {
+		$d = self::pacific_now();
+		$d->modify( 'tomorrow' );
+		return $d->getTimestamp();
+	}
+
+	/** مثل «۱۰:۳۰ امروز» به وقت سایت. */
+	public static function quota_reset_label() {
+		$ts    = self::quota_reset_ts();
+		$today = wp_date( 'Ymd' ) === wp_date( 'Ymd', $ts );
+		return wp_date( 'H:i', $ts ) . ( $today ? ' امروز' : ' فردا' );
+	}
+
+	/** وقتی گوگل خودش خطای سهمیه داد، شمارنده را با گوگل هم‌گام کن تا صف بیهوده تلاش نکند. */
+	public static function mark_exhausted() {
+		set_transient( self::quota_key(), self::DAILY_LIMIT, DAY_IN_SECONDS + HOUR_IN_SECONDS );
 	}
 
 	public static function used_today() {
@@ -164,10 +187,19 @@ class GSCII_Store {
 	/** درخواست واقعی به API با کنترل سهمیه و ثبت وضعیت اتصال. */
 	private static function fetch( $url ) {
 		if ( self::quota_left() <= 0 ) {
-			return new WP_Error( 'gscii_quota', 'سهمیه‌ی روزانه‌ی ۲۰۰۰ درخواست برای امروز تمام شده است.' );
+			return new WP_Error( 'gscii_quota', 'سهمیه‌ی روزانه‌ی گوگل تمام شده؛ ساعت ' . self::quota_reset_label() . ' دوباره شارژ می‌شود.' );
 		}
 
 		$result = GSCII_Google_Client::inspect( $url );
+
+		// خطای 429 روزانه از گوگل: شمارنده را پر کن (خطای «در دقیقه» فقط چند ثانیه صبر لازم دارد).
+		if ( is_wp_error( $result ) ) {
+			$data = $result->get_error_data();
+			if ( is_array( $data ) && isset( $data['status'] ) && 429 === (int) $data['status'] && false === stripos( $result->get_error_message(), 'minute' ) ) {
+				self::mark_exhausted();
+				return new WP_Error( 'gscii_quota', 'سهمیه‌ی روزانه‌ی گوگل برای این Property تمام شده؛ ساعت ' . self::quota_reset_label() . ' دوباره شارژ می‌شود.', $data );
+			}
+		}
 
 		// فقط درخواست‌هایی که واقعاً به API رسیده‌اند در سهمیه شمرده می‌شوند.
 		if ( ! is_wp_error( $result ) || is_array( $result->get_error_data() ) ) {
@@ -269,17 +301,23 @@ class GSCII_Store {
 		}
 		if ( $taxonomies ) {
 			$in = implode( ',', array_fill( 0, count( $taxonomies ), '%s' ) );
-			$out['TOTAL'] += (int) $wpdb->get_var( $wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
-				"SELECT COUNT(*) FROM {$wpdb->term_taxonomy} WHERE taxonomy IN ($in) AND count > 0",
+			$allowed       = array_flip( self::countable_term_ids( $taxonomies ) );
+			$out['TOTAL'] += count( $allowed );
+			$trows         = (array) $wpdb->get_results( $wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+				"SELECT tm.term_id, tm.meta_value AS v FROM {$wpdb->termmeta} tm
+				 INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = tm.term_id
+				 WHERE tm.meta_key = '_gscii_verdict' AND tt.taxonomy IN ($in)",
 				$taxonomies
 			) );
-			$rows = array_merge( $rows, (array) $wpdb->get_results( $wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
-				"SELECT tm.meta_value AS v, COUNT(*) AS c FROM {$wpdb->termmeta} tm
-				 INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = tm.term_id
-				 WHERE tm.meta_key = '_gscii_verdict' AND tt.taxonomy IN ($in) AND tt.count > 0
-				 GROUP BY tm.meta_value",
-				$taxonomies
-			) ) );
+			$agg = array();
+			foreach ( $trows as $tr ) {
+				if ( isset( $allowed[ (int) $tr->term_id ] ) ) {
+					$agg[ $tr->v ] = isset( $agg[ $tr->v ] ) ? $agg[ $tr->v ] + 1 : 1;
+				}
+			}
+			foreach ( $agg as $v => $c ) {
+				$rows[] = (object) array( 'v' => $v, 'c' => $c );
+			}
 		}
 		$checked = 0;
 		foreach ( (array) $rows as $row ) {
@@ -289,6 +327,61 @@ class GSCII_Store {
 		}
 		$out['NONE'] = max( 0, $out['TOTAL'] - $checked );
 		return $out;
+	}
+
+	/* ---------- Term totals ---------- */
+
+	/**
+	 * تعداد محصولات هر دسته «همراه با زیردسته‌ها».
+	 * ستون count وردپرس فقط محصولات مستقیم را می‌شمارد؛ دسته‌ی والدی که همه‌ی محصولاتش
+	 * در زیردسته‌ها هستند count=0 دارد ولی صفحه‌اش محصول نشان می‌دهد و باید بررسی شود.
+	 *
+	 * @return array term_id => total
+	 */
+	public static function term_totals( array $taxonomies ) {
+		static $cache = array();
+		$taxonomies = array_values( array_filter( $taxonomies ) );
+		$key        = implode( ',', $taxonomies );
+		if ( isset( $cache[ $key ] ) ) {
+			return $cache[ $key ];
+		}
+		if ( ! $taxonomies ) {
+			return array();
+		}
+		global $wpdb;
+		$in   = implode( ',', array_fill( 0, count( $taxonomies ), '%s' ) );
+		$rows = (array) $wpdb->get_results( $wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+			"SELECT term_id, parent, count FROM {$wpdb->term_taxonomy} WHERE taxonomy IN ($in)",
+			$taxonomies
+		) );
+		$parent = array();
+		$total  = array();
+		foreach ( $rows as $r ) {
+			$parent[ (int) $r->term_id ] = (int) $r->parent;
+			$total[ (int) $r->term_id ]  = (int) $r->count;
+		}
+		foreach ( $rows as $r ) {
+			$c = (int) $r->count;
+			if ( ! $c ) {
+				continue;
+			}
+			$p     = (int) $r->parent;
+			$guard = 0;
+			while ( $p && isset( $total[ $p ] ) && $guard++ < 50 ) {
+				$total[ $p ] += $c;
+				$p            = $parent[ $p ];
+			}
+		}
+		return $cache[ $key ] = $total;
+	}
+
+	/** دسته‌هایی که بررسی می‌شوند: غیرخالی (با احتساب زیردسته‌ها)، یا همه اگر گزینه‌اش روشن باشد. */
+	public static function countable_term_ids( array $taxonomies ) {
+		$t = self::term_totals( $taxonomies );
+		if ( get_option( 'gscii_include_empty_terms', 0 ) ) {
+			return array_keys( $t );
+		}
+		return array_keys( array_filter( $t ) );
 	}
 
 	/* ---------- Labels ---------- */

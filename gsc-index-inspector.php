@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       GSC Index Inspector
  * Description:       بررسی وضعیت ایندکس صفحات سایت با Google Search Console URL Inspection API.
- * Version:           1.4.0
+ * Version:           1.4.1
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Moh
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'GSCII_VERSION', '1.4.0' );
+define( 'GSCII_VERSION', '1.4.1' );
 define( 'GSCII_FILE', __FILE__ );
 define( 'GSCII_DIR', plugin_dir_path( __FILE__ ) );
 define( 'GSCII_URL', plugin_dir_url( __FILE__ ) );

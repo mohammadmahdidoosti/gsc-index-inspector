@@ -22,6 +22,7 @@ foreach ( array(
 	'gscii_priority_types',
 	'gscii_taxonomies',
 	'gscii_terms_first',
+	'gscii_include_empty_terms',
 ) as $opt ) {
 	delete_option( $opt );
 }

@@ -164,6 +164,13 @@ class GSCII_Admin {
 				return is_array( $v ) ? array_values( array_filter( array_map( 'sanitize_key', $v ), 'taxonomy_exists' ) ) : array();
 			},
 		) );
+		register_setting( $group, 'gscii_include_empty_terms', array(
+			'type'              => 'integer',
+			'default'           => 0,
+			'sanitize_callback' => function ( $v ) {
+				return $v ? 1 : 0;
+			},
+		) );
 		register_setting( $group, 'gscii_terms_first', array(
 			'type'              => 'integer',
 			'default'           => 1,
@@ -330,9 +337,9 @@ class GSCII_Admin {
 				</div>
 
 				<div class="gscii-header-meta">
-					<div class="gscii-quota" title="سقف گوگل: ۲۰۰۰ بررسی در روز برای هر Property">
+					<div class="gscii-quota" title="<?php echo esc_attr( 'سقف گوگل: ۲۰۰۰ بررسی در روز برای هر Property — شارژ دوباره ساعت ' . GSCII_Store::quota_reset_label() . ' (نیمه‌شب به وقت آمریکا)' ); ?>">
 						<div class="gscii-quota-label">
-							<span>سهمیه‌ی امروز</span>
+							<span>سهمیه‌ی امروز <small class="gscii-muted">· شارژ <?php echo esc_html( GSCII_Store::quota_reset_label() ); ?></small></span>
 							<strong><span data-gscii="quota-used"><?php echo esc_html( number_format_i18n( $used ) ); ?></span> از <?php echo esc_html( number_format_i18n( $limit ) ); ?></strong>
 						</div>
 						<div class="gscii-meter"><span data-gscii="quota-bar" style="width:<?php echo esc_attr( $pct ); ?>%"></span></div>
@@ -657,7 +664,7 @@ class GSCII_Admin {
 						<?php foreach ( self::taxonomies() as $tax ) : $tobj = get_taxonomy( $tax ); if ( ! $tobj ) { continue; } ?>
 							<label class="gscii-chip">
 								<input type="checkbox" name="taxonomies[]" value="<?php echo esc_attr( $tax ); ?>" checked>
-								<span><?php echo esc_html( $tobj->labels->name ); ?> <em><?php echo esc_html( number_format_i18n( (int) wp_count_terms( array( 'taxonomy' => $tax, 'hide_empty' => true ) ) ) ); ?></em></span>
+								<span><?php echo esc_html( $tobj->labels->name ); ?> <em><?php echo esc_html( number_format_i18n( count( GSCII_Store::countable_term_ids( array( $tax ) ) ) ) ); ?></em></span>
 							</label>
 						<?php endforeach; ?>
 					</div>
@@ -820,6 +827,25 @@ class GSCII_Admin {
 							<?php endforeach; ?>
 							<input type="hidden" name="gscii_taxonomies[]" value="">
 						</div>
+						<?php
+						$all_terms = count( GSCII_Store::term_totals( self::taxonomies() ) );
+						$non_empty = count( array_filter( GSCII_Store::term_totals( self::taxonomies() ) ) );
+						?>
+						<label class="gscii-toggle-row" style="margin-top:12px">
+							<span class="gscii-switch gscii-switch-lg">
+								<input type="hidden" name="gscii_include_empty_terms" value="0">
+								<input type="checkbox" name="gscii_include_empty_terms" value="1" <?php checked( (bool) get_option( 'gscii_include_empty_terms', 0 ) ); ?>><span></span>
+							</span>
+							<span>
+								<strong>بررسی دسته‌های خالی هم</strong>
+								<small>
+									از <?php echo esc_html( number_format_i18n( $all_terms ) ); ?> دسته،
+									<?php echo esc_html( number_format_i18n( $non_empty ) ); ?> دسته محصول دارند (خودشان یا زیردسته‌هایشان) و
+									<?php echo esc_html( number_format_i18n( $all_terms - $non_empty ) ); ?> دسته کاملاً خالی‌اند.
+									صفحه‌ی دسته‌ی خالی معمولاً «محصولی یافت نشد» نشان می‌دهد و ارزش ایندکس ندارد؛ پیشنهاد: خاموش.
+								</small>
+							</span>
+						</label>
 					</fieldset>
 					<fieldset class="gscii-field" style="margin-top:16px">
 						<legend>انواع محتوای مهم‌تر <span class="gscii-muted">(در هر سطح جلوتر قرار می‌گیرند)</span></legend>
@@ -1258,8 +1284,9 @@ class GSCII_Admin {
 
 		$term_items = array();
 		if ( $taxes ) {
-			$term_ids = get_terms( array( 'taxonomy' => $taxes, 'hide_empty' => true, 'fields' => 'ids' ) );
-			foreach ( is_wp_error( $term_ids ) ? array() : $term_ids as $tid ) {
+			$term_ids = GSCII_Store::countable_term_ids( $taxes );
+			update_meta_cache( 'term', $term_ids );
+			foreach ( $term_ids as $tid ) {
 				$r = GSCII_Store::get_term_result( $tid );
 				if ( 'stale' === $scope && GSCII_Store::is_fresh( $r ) ) {
 					continue;
@@ -1317,7 +1344,7 @@ class GSCII_Admin {
 		if ( ! $remaining ) {
 			$state = $total ? 'تکمیل شد' : 'صف خالی است';
 		} elseif ( GSCII_Store::quota_left() <= 0 ) {
-			$state = 'منتظر سهمیه‌ی فردا';
+			$state = 'منتظر شارژ سهمیه (' . GSCII_Store::quota_reset_label() . ')';
 		} else {
 			$state = $scheduled ? 'در حال اجرا با WP-Cron' : 'در انتظار';
 		}

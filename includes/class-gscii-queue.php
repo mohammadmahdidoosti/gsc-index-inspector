@@ -187,7 +187,8 @@ class GSCII_Queue {
 	 */
 	private static function rank_terms( array $term_ids, array $important ) {
 		global $wpdb;
-		$out = array();
+		$out    = array();
+		$totals = $term_ids ? GSCII_Store::term_totals( GSCII_Admin::taxonomies() ) : array();
 		foreach ( array_chunk( array_filter( array_map( 'intval', $term_ids ) ), 1000 ) as $chunk ) {
 			$in   = implode( ',', $chunk );
 			$rows = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL
@@ -209,7 +210,7 @@ class GSCII_Queue {
 					'group'     => 0,
 					'tier'      => $tier,
 					'important' => isset( $important[ $row->taxonomy ] ),
-					'modified'  => (int) $row->count, // برای ترم‌ها: تعداد آیتم‌ها
+					'modified'  => isset( $totals[ (int) $row->term_id ] ) ? $totals[ (int) $row->term_id ] : (int) $row->count, // برای ترم‌ها: تعداد محصولات با زیردسته‌ها
 					'checked'   => (int) $row->checked,
 					'type'      => $row->taxonomy,
 					'kind'      => 'term',
@@ -358,7 +359,7 @@ class GSCII_Queue {
 
 		while ( $done < $batch && ! empty( $queue ) ) {
 			if ( GSCII_Store::quota_left() <= 0 ) {
-				$errors[] = 'سهمیه‌ی روزانه تمام شد؛ صف فردا ادامه می‌یابد.';
+				$errors[] = 'سهمیه‌ی روزانه‌ی گوگل تمام شده؛ صف ساعت ' . GSCII_Store::quota_reset_label() . ' خودکار ادامه می‌یابد.';
 				break;
 			}
 
