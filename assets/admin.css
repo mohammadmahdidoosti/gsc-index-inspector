@@ -565,6 +565,28 @@
 @media (max-width: 900px) { .gscii-tiers { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 600px) { .gscii-next-meta .gscii-muted { display: none; } }
 
+/* ---------- Export ---------- */
+
+.gscii-status-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.gscii-status-opt span { border-color: var(--g-border); }
+.gscii-status-opt input:checked + span { border-color: var(--tone); background: var(--tone-bg); box-shadow: 0 0 0 1px var(--tone) inset; }
+.gscii-status-opt strong { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.gscii-status-count { font-style: normal; font-size: 13px; font-weight: 700; color: var(--tone); }
+.gscii-export-opts { grid-template-columns: 1.4fr 1fr; align-items: start; }
+.gscii-export-preview {
+	margin: 4px 0 18px; padding: 14px 16px;
+	border-radius: 11px; background: var(--g-surface-2); border: 1px solid var(--g-border);
+}
+.gscii-export-count { display: flex; align-items: baseline; gap: 8px; }
+.gscii-export-preview .gscii-next { margin-top: 6px; }
+.gscii-export-preview .gscii-next:empty { display: none; }
+.gscii-howto { margin: 0 0 10px; padding-inline-start: 20px; }
+.gscii-howto li { margin-bottom: 6px; color: var(--g-text-2); line-height: 1.9; }
+@media (max-width: 900px) {
+	.gscii-status-grid { grid-template-columns: 1fr 1fr; }
+	.gscii-export-opts { grid-template-columns: 1fr; }
+}
+
 /* ---------- Settings ---------- */
 
 .gscii-steps {

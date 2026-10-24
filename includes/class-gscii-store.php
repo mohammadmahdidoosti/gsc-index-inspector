@@ -249,24 +249,38 @@ class GSCII_Store {
 	/**
 	 * خلاصه‌ی وضعیت برای داشبورد.
 	 */
-	public static function counts( array $post_types ) {
+	public static function counts( array $post_types, array $taxonomies = array() ) {
 		global $wpdb;
-		$out = array( 'PASS' => 0, 'PARTIAL' => 0, 'FAIL' => 0, 'NEUTRAL' => 0, 'NONE' => 0, 'TOTAL' => 0 );
-		if ( empty( $post_types ) ) {
-			return $out;
+		$out  = array( 'PASS' => 0, 'PARTIAL' => 0, 'FAIL' => 0, 'NEUTRAL' => 0, 'NONE' => 0, 'TOTAL' => 0 );
+		$rows = array();
+		if ( $post_types ) {
+			foreach ( $post_types as $pt ) {
+				$c = wp_count_posts( $pt );
+				$out['TOTAL'] += isset( $c->publish ) ? (int) $c->publish : 0;
+			}
+			$in   = implode( ',', array_fill( 0, count( $post_types ), '%s' ) );
+			$rows = (array) $wpdb->get_results( $wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+				"SELECT pm.meta_value AS v, COUNT(*) AS c FROM {$wpdb->postmeta} pm
+				 INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+				 WHERE pm.meta_key = '_gscii_verdict' AND p.post_status = 'publish' AND p.post_type IN ($in)
+				 GROUP BY pm.meta_value",
+				$post_types
+			) );
 		}
-		foreach ( $post_types as $pt ) {
-			$c = wp_count_posts( $pt );
-			$out['TOTAL'] += isset( $c->publish ) ? (int) $c->publish : 0;
+		if ( $taxonomies ) {
+			$in = implode( ',', array_fill( 0, count( $taxonomies ), '%s' ) );
+			$out['TOTAL'] += (int) $wpdb->get_var( $wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+				"SELECT COUNT(*) FROM {$wpdb->term_taxonomy} WHERE taxonomy IN ($in) AND count > 0",
+				$taxonomies
+			) );
+			$rows = array_merge( $rows, (array) $wpdb->get_results( $wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+				"SELECT tm.meta_value AS v, COUNT(*) AS c FROM {$wpdb->termmeta} tm
+				 INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = tm.term_id
+				 WHERE tm.meta_key = '_gscii_verdict' AND tt.taxonomy IN ($in) AND tt.count > 0
+				 GROUP BY tm.meta_value",
+				$taxonomies
+			) ) );
 		}
-		$in   = implode( ',', array_fill( 0, count( $post_types ), '%s' ) );
-		$rows = $wpdb->get_results( $wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
-			"SELECT pm.meta_value AS v, COUNT(*) AS c FROM {$wpdb->postmeta} pm
-			 INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
-			 WHERE pm.meta_key = '_gscii_verdict' AND p.post_status = 'publish' AND p.post_type IN ($in)
-			 GROUP BY pm.meta_value",
-			$post_types
-		) );
 		$checked = 0;
 		foreach ( (array) $rows as $row ) {
 			$k = isset( $out[ $row->v ] ) ? $row->v : 'NEUTRAL';

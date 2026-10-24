@@ -126,6 +126,7 @@ class GSCII_Admin {
 			'key'      => '<circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 9.3-9.3m-3 3 3 3m-6 0 2 2"/>',
 			'link'     => '<path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/>',
 			'copy'     => '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>',
+			'download' => '<path d="M12 4v12m-5-5 5 5 5-5"/><path d="M4 18v1a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-1"/>',
 			'zap'      => '<path d="M13 2 3 14h9l-1 8 10-12h-9z"/>',
 		);
 		$p = isset( $paths[ $name ] ) ? $paths[ $name ] : $paths['minus'];
@@ -302,6 +303,7 @@ class GSCII_Admin {
 		$tabs = array(
 			'dashboard' => array( 'داشبورد', 'grid' ),
 			'bulk'      => array( 'بررسی گروهی', 'layers' ),
+			'export'    => array( 'خروجی', 'download' ),
 			'settings'  => array( 'تنظیمات', 'settings' ),
 		);
 
@@ -358,6 +360,9 @@ class GSCII_Admin {
 			<main class="gscii-main">
 				<?php
 				switch ( $tab ) {
+					case 'export':
+						self::render_export( $st );
+						break;
 					case 'bulk':
 						self::render_bulk( $st );
 						break;
@@ -396,17 +401,18 @@ class GSCII_Admin {
 		self::setup_banner( $st );
 
 		$pts    = self::post_types();
-		$counts = GSCII_Store::counts( $pts );
+		$counts = GSCII_Store::counts( $pts, self::taxonomies() );
 		$total  = max( 1, $counts['TOTAL'] );
-		$first  = $pts ? $pts[0] : 'post';
-		$list   = function ( $v ) use ( $first ) {
-			return admin_url( 'edit.php?post_type=' . $first . '&gscii_verdict=' . $v );
+		// «ایندکس نشده» شامل «خارج از ایندکس» (مثل URL is unknown to Google) هم هست.
+		$counts['NOTINDEXED'] = $counts['FAIL'] + $counts['NEUTRAL'];
+		$list   = function ( $status ) {
+			return self::url( 'export' ) . '&status=' . $status;
 		};
 		$cards = array(
-			array( 'PASS', 'ایندکس شده', 'pass', 'check' ),
-			array( 'FAIL', 'ایندکس نشده', 'fail', 'x' ),
-			array( 'PARTIAL', 'ایندکس با هشدار', 'partial', 'alert' ),
-			array( 'NONE', 'بررسی نشده', 'none', 'clock' ),
+			array( 'PASS', 'ایندکس شده', 'pass', 'check', 'indexed' ),
+			array( 'NOTINDEXED', 'ایندکس نشده', 'fail', 'x', 'notindexed' ),
+			array( 'PARTIAL', 'ایندکس با هشدار', 'partial', 'alert', 'partial' ),
+			array( 'NONE', 'بررسی نشده', 'none', 'clock', 'unchecked' ),
 		);
 		?>
 		<section class="gscii-inspect-hero">
@@ -426,7 +432,7 @@ class GSCII_Admin {
 
 		<section class="gscii-stats">
 			<?php foreach ( $cards as $c ) : ?>
-				<a class="gscii-stat gscii-tone-<?php echo esc_attr( $c[2] ); ?>" href="<?php echo esc_url( $list( strtolower( $c[0] ) ) ); ?>">
+				<a class="gscii-stat gscii-tone-<?php echo esc_attr( $c[2] ); ?>" href="<?php echo esc_url( $list( $c[4] ) ); ?>" title="مشاهده و خروجی گرفتن">
 					<span class="gscii-stat-ico"><?php echo self::icon( $c[3], 18 ); // phpcs:ignore ?></span>
 					<span class="gscii-stat-num"><?php echo esc_html( number_format_i18n( $counts[ $c[0] ] ) ); ?></span>
 					<span class="gscii-stat-label"><?php echo esc_html( $c[1] ); ?></span>
@@ -503,6 +509,91 @@ class GSCII_Admin {
 	/* =========================================================
 	 * Bulk
 	 * ======================================================= */
+
+	private static function render_export( $st ) {
+		self::setup_banner( $st );
+		$pts      = self::post_types();
+		$taxes    = self::taxonomies();
+		$counts   = GSCII_Export::status_counts( $pts, $taxes );
+		$selected = isset( $_GET['status'] ) ? array( sanitize_key( $_GET['status'] ) ) : array( 'notindexed' ); // phpcs:ignore WordPress.Security.NonceVerification
+		?>
+		<form class="gscii-card" id="gscii-export-form" method="get" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+			<input type="hidden" name="action" value="<?php echo esc_attr( GSCII_Export::ACTION ); ?>">
+			<?php wp_nonce_field( GSCII_Export::ACTION, '_wpnonce', false ); ?>
+
+			<div class="gscii-card-head"><h2>خروجی گرفتن از نتایج</h2></div>
+
+			<fieldset class="gscii-field">
+				<legend>کدام وضعیت؟</legend>
+				<div class="gscii-status-grid">
+					<?php foreach ( GSCII_Export::statuses() as $key => $s ) : ?>
+						<label class="gscii-option gscii-status-opt gscii-tone-<?php echo esc_attr( $s['tone'] ); ?>">
+							<input type="checkbox" name="status[]" value="<?php echo esc_attr( $key ); ?>" <?php checked( in_array( $key, $selected, true ) ); ?>>
+							<span>
+								<strong><?php echo esc_html( $s['label'] ); ?> <em class="gscii-status-count"><?php echo esc_html( number_format_i18n( $counts[ $key ] ) ); ?></em></strong>
+								<small><?php echo esc_html( $s['desc'] ); ?></small>
+							</span>
+						</label>
+					<?php endforeach; ?>
+				</div>
+			</fieldset>
+
+			<fieldset class="gscii-field">
+				<legend>کدام محتوا؟</legend>
+				<div class="gscii-chips">
+					<?php foreach ( $taxes as $tax ) : $tobj = get_taxonomy( $tax ); if ( ! $tobj ) { continue; } ?>
+						<label class="gscii-chip"><input type="checkbox" name="taxonomies[]" value="<?php echo esc_attr( $tax ); ?>" checked><span><?php echo esc_html( $tobj->labels->name ); ?></span></label>
+					<?php endforeach; ?>
+					<?php foreach ( $pts as $pt ) : $obj = get_post_type_object( $pt ); if ( ! $obj ) { continue; } ?>
+						<label class="gscii-chip"><input type="checkbox" name="post_types[]" value="<?php echo esc_attr( $pt ); ?>" checked><span><?php echo esc_html( $obj->labels->name ); ?></span></label>
+					<?php endforeach; ?>
+				</div>
+			</fieldset>
+
+			<div class="gscii-form-grid gscii-export-opts">
+				<label class="gscii-toggle-row">
+					<span class="gscii-switch gscii-switch-lg"><input type="checkbox" name="indexable" value="1" checked><span></span></span>
+					<span>
+						<strong>فقط صفحات قابل ایندکس</strong>
+						<small>صفحات noindex، مسدود در robots.txt و ۴۰۴ حذف می‌شوند؛ ارسالشان به گوگل فایده‌ای ندارد.</small>
+					</span>
+				</label>
+				<div>
+					<label class="gscii-label" for="gscii-export-limit">حداکثر تعداد</label>
+					<input type="number" min="0" id="gscii-export-limit" name="limit" class="gscii-input" placeholder="همه" value="">
+					<p class="gscii-hint gscii-pad0">سهمیه‌ی پیش‌فرض Indexing API گوگل ۲۰۰ آدرس در روز است.</p>
+					<div class="gscii-suggest">
+						<button type="button" class="gscii-chip-btn" data-fill="#gscii-export-limit" data-value="200">۲۰۰</button>
+						<button type="button" class="gscii-chip-btn" data-fill="#gscii-export-limit" data-value="100">۱۰۰</button>
+						<button type="button" class="gscii-chip-btn" data-fill="#gscii-export-limit" data-value="">همه</button>
+					</div>
+				</div>
+			</div>
+
+			<div class="gscii-export-preview" id="gscii-export-preview" aria-live="polite">
+				<div class="gscii-export-count"><span class="gscii-big" data-gscii="export-count">…</span><span class="gscii-muted">آدرس در خروجی</span><span class="gscii-muted gscii-excluded" data-gscii="export-excluded"></span></div>
+				<ol class="gscii-next" data-gscii="export-sample"></ol>
+			</div>
+
+			<div class="gscii-actions">
+				<button type="button" class="gscii-btn gscii-btn-primary gscii-btn-lg" id="gscii-copy-urls"><?php echo self::icon( 'copy', 16 ); // phpcs:ignore ?>کپی آدرس‌ها</button>
+				<button type="submit" name="format" value="txt" class="gscii-btn gscii-btn-lg"><?php echo self::icon( 'download', 16 ); // phpcs:ignore ?>دانلود TXT</button>
+				<button type="submit" name="format" value="csv" class="gscii-btn gscii-btn-lg"><?php echo self::icon( 'download', 16 ); // phpcs:ignore ?>دانلود CSV (اکسل)</button>
+			</div>
+		</form>
+
+		<section class="gscii-card gscii-card-muted">
+			<h3><?php echo self::icon( 'zap', 16 ); // phpcs:ignore ?> ارسال به Indexing API</h3>
+			<ol class="gscii-howto">
+				<li>وضعیت «ایندکس نشده» را انتخاب کنید و حداکثر را روی <strong>۲۰۰</strong> بگذارید.</li>
+				<li>«کپی آدرس‌ها» را بزنید (یک آدرس در هر خط).</li>
+				<li>در افزونه‌ی Indexing API (مثلاً <em>Rank Math ← Instant Indexing ← Console</em>) آدرس‌ها را بچسبانید و ارسال کنید.</li>
+				<li>چند روز بعد همین صفحات را با «بررسی گروهی ← فقط ایندکس‌نشده‌ها» دوباره بررسی کنید.</li>
+			</ol>
+			<p>فایل CSV همه‌ی جزئیات (Coverage، canonical، آخرین خزش و…) را دارد و در اکسل با حروف فارسی درست باز می‌شود.</p>
+		</section>
+		<?php
+	}
 
 	private static function render_bulk( $st ) {
 		self::setup_banner( $st );
@@ -994,7 +1085,8 @@ class GSCII_Admin {
 			''        => 'وضعیت ایندکس: همه',
 			'pass'    => 'ایندکس شده',
 			'partial' => 'ایندکس با هشدار',
-			'fail'    => 'ایندکس نشده',
+			'notindexed' => 'ایندکس نشده (همه)',
+			'fail'    => 'ایندکس نشده (خطا)',
 			'neutral' => 'خارج از ایندکس',
 			'none'    => 'بررسی نشده',
 		);
@@ -1010,7 +1102,9 @@ class GSCII_Admin {
 			return;
 		}
 		$v = sanitize_key( $_GET['gscii_verdict'] ); // phpcs:ignore WordPress.Security.NonceVerification
-		if ( 'none' === $v ) {
+		if ( 'notindexed' === $v ) {
+			$query->set( 'meta_query', array( array( 'key' => '_gscii_verdict', 'value' => array( 'FAIL', 'NEUTRAL', 'VERDICT_UNSPECIFIED' ), 'compare' => 'IN' ) ) );
+		} elseif ( 'none' === $v ) {
 			$query->set( 'meta_query', array( array( 'key' => '_gscii_verdict', 'compare' => 'NOT EXISTS' ) ) );
 		} elseif ( in_array( $v, array( 'pass', 'partial', 'fail', 'neutral' ), true ) ) {
 			$query->set( 'meta_query', array( array( 'key' => '_gscii_verdict', 'value' => strtoupper( $v ) ) ) );

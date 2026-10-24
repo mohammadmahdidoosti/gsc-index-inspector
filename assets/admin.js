@@ -351,6 +351,74 @@
 		});
 	}
 
+	/* ---------- export ---------- */
+
+	var exportForm = $('#gscii-export-form');
+
+	function exportData() {
+		var d = {};
+		['status', 'post_types', 'taxonomies'].forEach(function (k) {
+			d[k] = $$('input[name="' + k + '[]"]:checked', exportForm).map(function (i) { return i.value; });
+		});
+		d.indexable = $('input[name=indexable]', exportForm).checked ? 1 : 0;
+		d.limit = $('#gscii-export-limit').value || 0;
+		return d;
+	}
+
+	var previewTimer = null;
+	var previewSeq = 0;
+	function refreshPreview() {
+		clearTimeout(previewTimer);
+		previewTimer = setTimeout(function () {
+			var seq = ++previewSeq;
+			set('export-count', '…');
+			post('gscii_export_preview', exportData()).then(function (d) {
+				if (seq !== previewSeq) { return; }
+				set('export-count', d.label);
+				set('export-excluded', d.excluded_label ? '— ' + d.excluded_label : '');
+				var list = $('[data-gscii="export-sample"]');
+				list.innerHTML = '';
+				d.sample.forEach(function (row) {
+					var li = document.createElement('li');
+					var title = document.createElement('span');
+					title.className = 'gscii-next-title-text';
+					title.textContent = row.title || row.url;
+					var meta = document.createElement('span');
+					meta.className = 'gscii-next-meta gscii-muted';
+					meta.textContent = row.type + ' · ' + row.status;
+					li.appendChild(title); li.appendChild(meta);
+					list.appendChild(li);
+				});
+				$$('#gscii-export-form .gscii-actions button').forEach(function (b) { b.disabled = !d.count; });
+			}).catch(function (err) { set('export-count', '—'); toast(err.message, 'bad'); });
+		}, 250);
+	}
+
+	if (exportForm) {
+		exportForm.addEventListener('change', refreshPreview);
+		$('#gscii-export-limit').addEventListener('input', refreshPreview);
+		exportForm.addEventListener('click', function (e) {
+			if (e.target.closest && e.target.closest('[data-fill]')) { setTimeout(refreshPreview, 0); }
+		});
+		refreshPreview();
+
+		$('#gscii-copy-urls').addEventListener('click', function () {
+			var btn = this;
+			loading(btn, true);
+			post('gscii_export_urls', exportData()).then(function (d) {
+				var done = function () { toast(d.count + ' آدرس کپی شد؛ در افزونه‌ی Indexing API بچسبانید.', 'ok'); };
+				if (navigator.clipboard && window.isSecureContext) {
+					return navigator.clipboard.writeText(d.text).then(done);
+				}
+				var ta = document.createElement('textarea');
+				ta.value = d.text; document.body.appendChild(ta); ta.select();
+				try { document.execCommand('copy'); done(); } catch (err) { toast(t.error, 'bad'); }
+				ta.remove();
+			}).catch(function (err) { toast(err.message, 'bad'); })
+				.finally(function () { loading(btn, false); });
+		});
+	}
+
 	if (progress) {
 		setInterval(function () {
 			if (document.hidden || running) { return; }
