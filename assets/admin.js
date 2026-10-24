@@ -351,6 +351,20 @@
 		});
 	}
 
+	/* ---------- auto scan ---------- */
+
+	var scanBtn = $('#gscii-scan-now');
+	if (scanBtn) {
+		scanBtn.addEventListener('click', function () {
+			loading(scanBtn, true);
+			post('gscii_scan_now', {}).then(function (d) {
+				set('scan-label', d.label);
+				toast(d.message, 'ok');
+			}).catch(function (err) { toast(err.message, 'bad'); })
+				.finally(function () { loading(scanBtn, false); });
+		});
+	}
+
 	/* ---------- export ---------- */
 
 	var exportForm = $('#gscii-export-form');

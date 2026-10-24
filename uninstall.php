@@ -23,6 +23,9 @@ foreach ( array(
 	'gscii_taxonomies',
 	'gscii_terms_first',
 	'gscii_include_empty_terms',
+	'gscii_auto_enqueue',
+	'gscii_recheck_days',
+	'gscii_last_scan',
 ) as $opt ) {
 	delete_option( $opt );
 }
@@ -34,3 +37,4 @@ delete_post_meta_by_key( '_gscii_checked' );
 global $wpdb;
 $wpdb->query( "DELETE FROM {$wpdb->termmeta} WHERE meta_key IN ('_gscii_result','_gscii_verdict','_gscii_checked')" ); // phpcs:ignore
 wp_clear_scheduled_hook( 'gscii_process_queue' );
+wp_clear_scheduled_hook( 'gscii_daily_scan' );

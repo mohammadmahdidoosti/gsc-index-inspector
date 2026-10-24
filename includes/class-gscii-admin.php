@@ -164,6 +164,20 @@ class GSCII_Admin {
 				return is_array( $v ) ? array_values( array_filter( array_map( 'sanitize_key', $v ), 'taxonomy_exists' ) ) : array();
 			},
 		) );
+		register_setting( $group, 'gscii_auto_enqueue', array(
+			'type'              => 'integer',
+			'default'           => 1,
+			'sanitize_callback' => function ( $v ) {
+				return $v ? 1 : 0;
+			},
+		) );
+		register_setting( $group, 'gscii_recheck_days', array(
+			'type'              => 'integer',
+			'default'           => 30,
+			'sanitize_callback' => function ( $v ) {
+				return max( 1, min( 365, absint( $v ) ) );
+			},
+		) );
 		register_setting( $group, 'gscii_include_empty_terms', array(
 			'type'              => 'integer',
 			'default'           => 0,
@@ -628,6 +642,10 @@ class GSCII_Admin {
 				<button type="button" class="gscii-btn gscii-btn-ghost-danger" id="gscii-clear" <?php disabled( ! $q['remaining_raw'] ); ?>><?php echo self::icon( 'trash', 16 ); // phpcs:ignore ?>خالی کردن صف</button>
 			</div>
 			<p class="gscii-hint">
+				<?php if ( GSCII_Auto::enabled() ) : ?>
+					<strong>افزودن خودکار فعال است.</strong> <?php echo esc_html( GSCII_Auto::last_scan_label() ); ?>
+					<a href="<?php echo esc_url( self::url( 'settings' ) ); ?>#gscii-auto-settings">تنظیمات</a><br>
+				<?php endif; ?>
 				بدون باز ماندن این صفحه هم صف با WP-Cron هر دقیقه
 				<?php echo esc_html( number_format_i18n( (int) get_option( 'gscii_batch_size', 5 ) ) ); ?>
 				مورد را بررسی می‌کند. «اجرای سریع» تا وقتی صفحه باز است دسته‌ها را پشت سر هم اجرا می‌کند.
@@ -860,6 +878,34 @@ class GSCII_Admin {
 							<input type="hidden" name="gscii_priority_types[]" value="">
 						</div>
 					</fieldset>
+				</section>
+
+				<section class="gscii-card">
+					<div class="gscii-card-head" id="gscii-auto-settings"><h2>افزودن خودکار به صف</h2></div>
+					<label class="gscii-toggle-row">
+						<span class="gscii-switch gscii-switch-lg">
+							<input type="hidden" name="gscii_auto_enqueue" value="0">
+							<input type="checkbox" name="gscii_auto_enqueue" value="1" <?php checked( GSCII_Auto::enabled() ); ?>><span></span>
+						</span>
+						<span>
+							<strong>فعال</strong>
+							<small>
+								هر محصول یا نوشته‌ای که منتشر یا ویرایش شود، همراه با دسته‌ها و دسته‌های والدش خودکار وارد صف می‌شود.
+								روزی یک بار هم اسکن می‌شود: دسته‌هایی که تازه محصول گرفته‌اند، صفحات بررسی‌نشده،
+								ایندکس‌نشده‌هایی که <?php echo esc_html( number_format_i18n( GSCII_Auto::FAIL_RECHECK ) ); ?> روز از بررسی‌شان گذشته و صفحات ویرایش‌شده.
+							</small>
+						</span>
+					</label>
+					<div class="gscii-form-grid" style="margin-top:16px">
+						<div>
+							<label class="gscii-label" for="gscii_recheck_days">بررسی دوباره‌ی صفحات ایندکس‌شده هر چند روز؟</label>
+							<input type="number" min="1" max="365" id="gscii_recheck_days" name="gscii_recheck_days" class="gscii-input" value="<?php echo esc_attr( GSCII_Auto::pass_recheck_days() ); ?>">
+						</div>
+					</div>
+					<div class="gscii-scan-row">
+						<span class="gscii-muted" data-gscii="scan-label"><?php echo esc_html( GSCII_Auto::last_scan_label() ); ?></span>
+						<button type="button" class="gscii-btn gscii-btn-sm" id="gscii-scan-now"><?php echo self::icon( 'refresh', 14 ); // phpcs:ignore ?>اسکن همین الان</button>
+					</div>
 				</section>
 
 				<section class="gscii-card">

@@ -587,6 +587,13 @@
 	.gscii-export-opts { grid-template-columns: 1fr; }
 }
 
+/* ---------- Auto ---------- */
+
+.gscii-scan-row {
+	display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+	margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--g-border);
+}
+
 /* ---------- Settings ---------- */
 
 .gscii-steps {
