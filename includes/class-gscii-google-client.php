@@ -124,6 +124,44 @@ class GSCII_Google_Client {
 		return $body['access_token'];
 	}
 
+	/**
+	 * درخواست عمومی JSON به APIهای گوگل با همان توکن (مثل Search Analytics).
+	 *
+	 * @return array|WP_Error بدنه‌ی پاسخ
+	 */
+	public static function request( $method, $url, $body = null, $retry_on_401 = true ) {
+		$token = self::get_access_token();
+		if ( is_wp_error( $token ) ) {
+			return $token;
+		}
+		$args = array(
+			'method'  => $method,
+			'timeout' => 45,
+			'headers' => array(
+				'Authorization' => 'Bearer ' . $token,
+				'Content-Type'  => 'application/json',
+			),
+		);
+		if ( null !== $body ) {
+			$args['body'] = wp_json_encode( $body );
+		}
+		$response = wp_remote_request( $url, $args );
+		if ( is_wp_error( $response ) ) {
+			return new WP_Error( 'gscii_api_http', 'اتصال به API گوگل ناموفق بود: ' . $response->get_error_message() );
+		}
+		$code = (int) wp_remote_retrieve_response_code( $response );
+		$data = json_decode( wp_remote_retrieve_body( $response ), true );
+		if ( 401 === $code && $retry_on_401 ) {
+			delete_transient( 'gscii_access_token' );
+			return self::request( $method, $url, $body, false );
+		}
+		if ( $code < 200 || $code >= 300 ) {
+			$msg = isset( $data['error']['message'] ) ? $data['error']['message'] : 'HTTP ' . $code;
+			return new WP_Error( 'gscii_api_error', $msg, array( 'status' => $code ) );
+		}
+		return is_array( $data ) ? $data : array();
+	}
+
 	public static function get_property() {
 		return trim( (string) get_option( 'gscii_property', '' ) );
 	}
@@ -197,9 +235,26 @@ class GSCII_Google_Client {
 			return isset( $index[ $key ] ) ? $index[ $key ] : $default;
 		};
 
-		$rich = '';
+		$rich        = '';
+		$rich_issues = array();
 		if ( isset( $result['richResultsResult']['verdict'] ) ) {
 			$rich = $result['richResultsResult']['verdict'];
+		}
+		if ( ! empty( $result['richResultsResult']['detectedItems'] ) && is_array( $result['richResultsResult']['detectedItems'] ) ) {
+			foreach ( $result['richResultsResult']['detectedItems'] as $det ) {
+				$type = isset( $det['richResultType'] ) ? (string) $det['richResultType'] : '';
+				foreach ( isset( $det['items'] ) ? (array) $det['items'] : array() as $item ) {
+					foreach ( isset( $item['issues'] ) ? (array) $item['issues'] : array() as $iss ) {
+						$key                 = md5( $type . '|' . ( isset( $iss['issueMessage'] ) ? $iss['issueMessage'] : '' ) );
+						$rich_issues[ $key ] = array(
+							'type'     => $type,
+							'msg'      => isset( $iss['issueMessage'] ) ? (string) $iss['issueMessage'] : '',
+							'severity' => isset( $iss['severity'] ) ? (string) $iss['severity'] : '',
+						);
+					}
+				}
+			}
+			$rich_issues = array_slice( array_values( $rich_issues ), 0, 20 );
 		}
 
 		return array(
@@ -216,6 +271,7 @@ class GSCII_Google_Client {
 			'sitemap'         => (array) $get( 'sitemap', array() ),
 			'referringUrls'   => (array) $get( 'referringUrls', array() ),
 			'richResults'     => $rich,
+			'richIssues'      => $rich_issues,
 			'link'            => isset( $result['inspectionResultLink'] ) ? $result['inspectionResultLink'] : '',
 			'checked_at'      => time(),
 		);

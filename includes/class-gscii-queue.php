@@ -17,7 +17,7 @@ class GSCII_Queue {
 	public static function init() {
 		add_filter( 'cron_schedules', array( __CLASS__, 'schedules' ) );
 		add_action( self::HOOK, array( __CLASS__, 'process' ) );
-		foreach ( array( 'gscii_smart_priority', 'gscii_priority_types', 'gscii_terms_first' ) as $opt ) {
+		foreach ( array( 'gscii_smart_priority', 'gscii_priority_types', 'gscii_terms_first', 'gscii_priority_traffic', 'gscii_priority_sales' ) as $opt ) {
 			add_action( 'update_option_' . $opt, array( __CLASS__, 'resort' ), 10, 0 );
 			add_action( 'add_option_' . $opt, array( __CLASS__, 'resort' ), 10, 0 );
 		}
@@ -142,9 +142,13 @@ class GSCII_Queue {
 			$in   = implode( ',', $chunk ); // فقط عدد صحیح
 			$rows = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL
 				"SELECT p.ID, p.post_type, p.post_date_gmt, p.post_modified_gmt,
-				        v.meta_value AS verdict, c.meta_value AS checked, r.meta_value AS result
+				        v.meta_value AS verdict, c.meta_value AS checked, r.meta_value AS result,
+				        k.meta_value AS clicks, im.meta_value AS impr, ts.meta_value AS sales
 				 FROM {$wpdb->posts} p
 				 LEFT JOIN {$wpdb->postmeta} v ON v.post_id = p.ID AND v.meta_key = '_gscii_verdict'
+				 LEFT JOIN {$wpdb->postmeta} k ON k.post_id = p.ID AND k.meta_key = '_gscii_clicks'
+				 LEFT JOIN {$wpdb->postmeta} im ON im.post_id = p.ID AND im.meta_key = '_gscii_impr'
+				 LEFT JOIN {$wpdb->postmeta} ts ON ts.post_id = p.ID AND ts.meta_key = 'total_sales'
 				 LEFT JOIN {$wpdb->postmeta} c ON c.post_id = p.ID AND c.meta_key = '_gscii_checked'
 				 LEFT JOIN {$wpdb->postmeta} r ON r.post_id = p.ID AND r.meta_key = '_gscii_result' AND c.meta_value IS NULL
 				 WHERE p.ID IN ($in)"
@@ -175,6 +179,9 @@ class GSCII_Queue {
 					'checked'   => $checked,
 					'type'      => $row->post_type,
 					'kind'      => 'post',
+					'clicks'    => (int) $row->clicks,
+					'impr'      => (int) $row->impr,
+					'sales'     => (int) $row->sales,
 				);
 			}
 		}
@@ -192,9 +199,12 @@ class GSCII_Queue {
 		foreach ( array_chunk( array_filter( array_map( 'intval', $term_ids ) ), 1000 ) as $chunk ) {
 			$in   = implode( ',', $chunk );
 			$rows = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL
-				"SELECT tt.term_id, tt.taxonomy, tt.count, v.meta_value AS verdict, c.meta_value AS checked
+				"SELECT tt.term_id, tt.taxonomy, tt.count, v.meta_value AS verdict, c.meta_value AS checked,
+				        k.meta_value AS clicks, im.meta_value AS impr
 				 FROM {$wpdb->term_taxonomy} tt
 				 LEFT JOIN {$wpdb->termmeta} v ON v.term_id = tt.term_id AND v.meta_key = '_gscii_verdict'
+				 LEFT JOIN {$wpdb->termmeta} k ON k.term_id = tt.term_id AND k.meta_key = '_gscii_clicks'
+				 LEFT JOIN {$wpdb->termmeta} im ON im.term_id = tt.term_id AND im.meta_key = '_gscii_impr'
 				 LEFT JOIN {$wpdb->termmeta} c ON c.term_id = tt.term_id AND c.meta_key = '_gscii_checked'
 				 WHERE tt.term_id IN ($in)"
 			);
@@ -214,6 +224,9 @@ class GSCII_Queue {
 					'checked'   => (int) $row->checked,
 					'type'      => $row->taxonomy,
 					'kind'      => 'term',
+					'clicks'    => (int) $row->clicks,
+					'impr'      => (int) $row->impr,
+					'sales'     => 0,
 				);
 			}
 		}
@@ -242,12 +255,14 @@ class GSCII_Queue {
 			return $ids;
 		}
 		$ids   = self::normalize( $ids );
-		$rank  = self::rank( $ids );
-		$order = array();
+		$rank    = self::rank( $ids );
+		$traffic = GSCII_Traffic::enabled();
+		$sales   = GSCII_Traffic::sales_enabled();
+		$order   = array();
 		foreach ( $ids as $i => $id ) {
 			$order[ (string) $id ] = $i; // برای پایداری مرتب‌سازی
 		}
-		usort( $ids, function ( $a, $b ) use ( $rank, $order ) {
+		usort( $ids, function ( $a, $b ) use ( $rank, $order, $traffic, $sales ) {
 			$ka = (string) $a;
 			$kb = (string) $b;
 			$ra = isset( $rank[ $ka ] ) ? $rank[ $ka ] : null;
@@ -263,6 +278,17 @@ class GSCII_Queue {
 			}
 			if ( $ra['important'] !== $rb['important'] ) {
 				return $ra['important'] ? -1 : 1;
+			}
+			if ( $traffic ) {
+				if ( $ra['clicks'] !== $rb['clicks'] ) {
+					return $rb['clicks'] - $ra['clicks'];
+				}
+				if ( $ra['impr'] !== $rb['impr'] ) {
+					return $rb['impr'] - $ra['impr'];
+				}
+			}
+			if ( $sales && $ra['sales'] !== $rb['sales'] ) {
+				return $rb['sales'] - $ra['sales'];
 			}
 			if ( self::TIER_REFRESH === $ra['tier'] ) {
 				$cmp = $ra['checked'] - $rb['checked'];

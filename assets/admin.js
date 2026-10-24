@@ -351,6 +351,47 @@
 		});
 	}
 
+	/* ---------- generic AJAX buttons: data-ajax="action" data-arg-*="…" ---------- */
+
+	document.addEventListener('click', function (e) {
+		var b = e.target.closest && e.target.closest('[data-ajax]');
+		if (!b || b.disabled) { return; }
+		e.preventDefault();
+		if (b.dataset.confirm && !window.confirm(b.dataset.confirm)) { return; }
+		var data = {};
+		Object.keys(b.dataset).forEach(function (k) {
+			if (k.indexOf('arg') === 0 && k.length > 3) {
+				data[k.charAt(3).toLowerCase() + k.slice(4)] = b.dataset[k];
+			}
+		});
+		var loop = b.dataset.loop === '1';
+		var guard = 0;
+		loading(b, true);
+		(function step() {
+			post(b.dataset.ajax, data).then(function (d) {
+				if (b.dataset.progress && d.progress !== undefined) { set(b.dataset.progress, d.progress); }
+				if (loop && d.remaining > 0 && guard++ < 500) { step(); return; }
+				if (b.dataset.label && d.label) { set(b.dataset.label, d.label); }
+				toast(d.message || 'انجام شد.', 'ok');
+				loading(b, false);
+				if (b.dataset.reload === '1') { setTimeout(function () { location.reload(); }, 1200); }
+			}).catch(function (err) {
+				toast(err.message, 'bad');
+				loading(b, false);
+			});
+		})();
+	});
+
+	/* ---------- instant on/off options outside the settings form ---------- */
+
+	document.addEventListener('change', function (e) {
+		var el = e.target;
+		if (!el.classList || !el.classList.contains('gscii-instant-option')) { return; }
+		post('gscii_set_option', { option: el.dataset.option, value: el.checked ? 1 : 0 })
+			.then(function () { toast('ذخیره شد.', 'ok'); })
+			.catch(function (err) { el.checked = !el.checked; toast(err.message, 'bad'); });
+	});
+
 	/* ---------- auto scan ---------- */
 
 	var scanBtn = $('#gscii-scan-now');
@@ -374,6 +415,9 @@
 		['status', 'post_types', 'taxonomies'].forEach(function (k) {
 			d[k] = $$('input[name="' + k + '[]"]:checked', exportForm).map(function (i) { return i.value; });
 		});
+		d.reasons = $$('input[name="reasons[]"]', exportForm).map(function (i) { return i.value; });
+		var flagEl = $('input[name="flag"]', exportForm);
+		if (flagEl) { d.flag = flagEl.value; }
 		d.indexable = $('input[name=indexable]', exportForm).checked ? 1 : 0;
 		d.limit = $('#gscii-export-limit').value || 0;
 		return d;
@@ -415,6 +459,19 @@
 			if (e.target.closest && e.target.closest('[data-fill]')) { setTimeout(refreshPreview, 0); }
 		});
 		refreshPreview();
+
+		var sendBtn = $('#gscii-send-indexing');
+		if (sendBtn) {
+			sendBtn.addEventListener('click', function () {
+				if (!window.confirm('آدرس‌های این فیلتر (فقط قابل ایندکس‌ها و آن‌هایی که اخیراً ارسال نشده‌اند) به صف افزونه‌ی Indexing API اضافه شوند؟')) { return; }
+				loading(sendBtn, true);
+				post('gscii_send_indexing', exportData()).then(function (d) {
+					toast(d.message, d.added ? 'ok' : '');
+					refreshPreview();
+				}).catch(function (err) { toast(err.message, 'bad'); })
+					.finally(function () { loading(sendBtn, false); });
+			});
+		}
 
 		$('#gscii-copy-urls').addEventListener('click', function () {
 			var btn = this;

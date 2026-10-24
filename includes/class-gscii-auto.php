@@ -18,6 +18,9 @@ class GSCII_Auto {
 	/** @var array آیتم‌های جمع‌شده در این درخواست؛ یک‌جا در پایان درخواست به صف می‌روند. */
 	private static $buffer = array();
 
+	/** @var int[] دسته‌هایی که باید در پایان درخواست بررسی شوند که noindex خالی‌بودنشان برداشته شود. */
+	private static $release = array();
+
 	public static function enabled() {
 		return (bool) get_option( 'gscii_auto_enqueue', 1 );
 	}
@@ -39,12 +42,10 @@ class GSCII_Auto {
 		add_action( 'shutdown', array( __CLASS__, 'flush' ) );
 	}
 
+	/** کرون روزانه همیشه فعال است (آمار روزانه، دسته‌های خالی، Indexing API)؛ افزودن به صف فقط اگر «خودکار» روشن باشد. */
 	public static function schedule() {
-		$next = wp_next_scheduled( self::DAILY );
-		if ( self::enabled() && ! $next ) {
+		if ( ! wp_next_scheduled( self::DAILY ) ) {
 			wp_schedule_event( time() + 10 * MINUTE_IN_SECONDS, 'daily', self::DAILY );
-		} elseif ( ! self::enabled() && $next ) {
-			wp_clear_scheduled_hook( self::DAILY );
 		}
 	}
 
@@ -86,17 +87,29 @@ class GSCII_Auto {
 
 	/** دسته و والدهایش را اضافه کن، مگر این‌که تازه بررسی شده باشند. */
 	private static function maybe_terms( array $term_ids, $taxonomy ) {
+		$marked = array();
 		foreach ( $term_ids as $tid ) {
 			$chain = array_merge( array( (int) $tid ), get_ancestors( (int) $tid, $taxonomy, 'taxonomy' ) );
 			foreach ( $chain as $id ) {
 				if ( ! GSCII_Store::is_fresh( GSCII_Store::get_term_result( $id ) ) ) {
 					self::$buffer[] = 't' . (int) $id;
 				}
+				if ( get_term_meta( $id, GSCII_Empty::MARK, true ) ) {
+					$marked[] = (int) $id;
+				}
 			}
+		}
+		// دسته‌ای که این افزونه به‌خاطر خالی بودن noindex کرده بود و حالا محصول گرفت → برداشتن noindex.
+		if ( $marked ) {
+			self::$release = array_merge( self::$release, $marked );
 		}
 	}
 
 	public static function flush() {
+		if ( self::$release ) {
+			GSCII_Empty::release_filled( array_values( array_unique( self::$release ) ) );
+			self::$release = array();
+		}
 		if ( self::$buffer ) {
 			$items        = array_values( array_unique( self::$buffer, SORT_REGULAR ) );
 			self::$buffer = array();
@@ -108,9 +121,12 @@ class GSCII_Auto {
 	 * اسکن روزانه
 	 * ------------------------------------------------------- */
 
-	private static function due( $verdict, $checked, $modified, $now ) {
+	private static function due( $verdict, $checked, $modified, $now, $submitted = 0 ) {
 		if ( ! $verdict ) {
 			return true; // هرگز بررسی نشده
+		}
+		if ( $submitted && $checked < $submitted && $now >= $submitted + GSCII_Indexing::RECHECK_AFTER * DAY_IN_SECONDS ) {
+			return true; // به Indexing API ارسال شده؛ وقت سنجیدن نتیجه است
 		}
 		if ( $modified && $modified > $checked ) {
 			return true; // بعد از آخرین بررسی ویرایش شده
@@ -124,11 +140,18 @@ class GSCII_Auto {
 	/**
 	 * @return array [ 'terms' => n, 'posts' => n ]
 	 */
-	public static function daily_scan() {
+	public static function daily_scan( $force = false ) {
 		global $wpdb;
 		$now   = time();
 		$terms = array();
 		$posts = array();
+
+		if ( ! $force && ! self::enabled() ) {
+			GSCII_History::snapshot( true );
+			GSCII_Empty::daily();
+			GSCII_Indexing::auto_submit();
+			return array( 'terms' => 0, 'posts' => 0, 'time' => $now );
+		}
 
 		// دسته‌ها (فقط دسته‌های دارای محصول، با احتساب زیردسته‌ها)
 		$taxes = GSCII_Admin::taxonomies();
@@ -139,7 +162,7 @@ class GSCII_Auto {
 				$in   = implode( ',', array_map( 'intval', $chunk ) );
 				$rows = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL
 					"SELECT term_id, meta_key, meta_value FROM {$wpdb->termmeta}
-					 WHERE term_id IN ($in) AND meta_key IN ('_gscii_verdict','_gscii_checked')"
+					 WHERE term_id IN ($in) AND meta_key IN ('_gscii_verdict','_gscii_checked','_gscii_submitted')"
 				);
 				foreach ( (array) $rows as $r ) {
 					$meta[ (int) $r->term_id ][ $r->meta_key ] = $r->meta_value;
@@ -148,7 +171,8 @@ class GSCII_Auto {
 			foreach ( $ids as $id ) {
 				$v = isset( $meta[ $id ]['_gscii_verdict'] ) ? $meta[ $id ]['_gscii_verdict'] : '';
 				$c = isset( $meta[ $id ]['_gscii_checked'] ) ? (int) $meta[ $id ]['_gscii_checked'] : 0;
-				if ( self::due( $v, $c, 0, $now ) ) {
+				$s = isset( $meta[ $id ]['_gscii_submitted'] ) ? (int) $meta[ $id ]['_gscii_submitted'] : 0;
+				if ( self::due( $v, $c, 0, $now, $s ) ) {
 					$terms[] = 't' . $id;
 				}
 			}
@@ -161,16 +185,17 @@ class GSCII_Auto {
 				return "'" . esc_sql( $p ) . "'";
 			}, $pts ) );
 			$rows = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL
-				"SELECT p.ID, p.post_modified_gmt, v.meta_value AS verdict, c.meta_value AS checked
+				"SELECT p.ID, p.post_modified_gmt, v.meta_value AS verdict, c.meta_value AS checked, sb.meta_value AS submitted
 				 FROM {$wpdb->posts} p
 				 LEFT JOIN {$wpdb->postmeta} v ON v.post_id = p.ID AND v.meta_key = '_gscii_verdict'
 				 LEFT JOIN {$wpdb->postmeta} c ON c.post_id = p.ID AND c.meta_key = '_gscii_checked'
+				 LEFT JOIN {$wpdb->postmeta} sb ON sb.post_id = p.ID AND sb.meta_key = '_gscii_submitted'
 				 WHERE p.post_status = 'publish' AND p.post_type IN ($in)"
 			);
 			foreach ( (array) $rows as $r ) {
 				$checked  = (int) $r->checked;
 				$modified = $checked ? (int) strtotime( $r->post_modified_gmt . ' UTC' ) : 0;
-				if ( self::due( $r->verdict, $checked, $modified, $now ) ) {
+				if ( self::due( $r->verdict, $checked, $modified, $now, (int) $r->submitted ) ) {
 					$posts[] = (int) $r->ID;
 				}
 			}
@@ -181,6 +206,11 @@ class GSCII_Auto {
 		}
 		$res = array( 'terms' => count( $terms ), 'posts' => count( $posts ), 'time' => $now );
 		update_option( 'gscii_last_scan', $res, false );
+
+		// کارهای روزانه‌ی دیگر
+		GSCII_History::snapshot( true );
+		GSCII_Empty::daily();
+		GSCII_Indexing::auto_submit();
 		return $res;
 	}
 
@@ -199,7 +229,7 @@ class GSCII_Auto {
 		if ( ! current_user_can( GSCII_Admin::CAP ) ) {
 			wp_send_json_error( array( 'message' => 'دسترسی ندارید.' ), 403 );
 		}
-		$r = self::daily_scan();
+		$r = self::daily_scan( true );
 		wp_send_json_success( array(
 			'message' => number_format_i18n( $r['terms'] ) . ' دسته‌بندی و ' . number_format_i18n( $r['posts'] ) . ' صفحه به صف اضافه شد.',
 			'label'   => self::last_scan_label(),

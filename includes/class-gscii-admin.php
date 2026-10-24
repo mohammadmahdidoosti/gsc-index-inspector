@@ -18,7 +18,7 @@ class GSCII_Admin {
 		add_action( 'admin_init', array( __CLASS__, 'register_settings' ) );
 		add_action( 'admin_enqueue_scripts', array( __CLASS__, 'assets' ) );
 
-		foreach ( array( 'inspect', 'test', 'enqueue', 'queue_status', 'queue_run', 'queue_clear' ) as $a ) {
+		foreach ( array( 'inspect', 'test', 'enqueue', 'queue_status', 'queue_run', 'queue_clear', 'set_option' ) as $a ) {
 			add_action( 'wp_ajax_gscii_' . $a, array( __CLASS__, 'ajax_' . $a ) );
 		}
 
@@ -126,6 +126,7 @@ class GSCII_Admin {
 			'key'      => '<circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 9.3-9.3m-3 3 3 3m-6 0 2 2"/>',
 			'link'     => '<path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/>',
 			'copy'     => '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>',
+			'alert-c'  => '<circle cx="12" cy="12" r="9"/><path d="M12 8v5m0 3h.01"/>',
 			'download' => '<path d="M12 4v12m-5-5 5 5 5-5"/><path d="M4 18v1a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-1"/>',
 			'zap'      => '<path d="M13 2 3 14h9l-1 8 10-12h-9z"/>',
 		);
@@ -142,6 +143,8 @@ class GSCII_Admin {
 		add_menu_page( 'وضعیت ایندکس گوگل', 'ایندکس گوگل', self::CAP, self::SLUG, array( __CLASS__, 'render_page' ), $icon, 81 );
 		add_submenu_page( self::SLUG, 'داشبورد', 'داشبورد', self::CAP, self::SLUG, array( __CLASS__, 'render_page' ) );
 		add_submenu_page( self::SLUG, 'بررسی گروهی', 'بررسی گروهی', self::CAP, self::SLUG . '&tab=bulk', '__return_null' );
+		add_submenu_page( self::SLUG, 'مشکلات', 'مشکلات', self::CAP, self::SLUG . '&tab=issues', '__return_null' );
+		add_submenu_page( self::SLUG, 'خروجی', 'خروجی', self::CAP, self::SLUG . '&tab=export', '__return_null' );
 		add_submenu_page( self::SLUG, 'تنظیمات', 'تنظیمات', self::CAP, self::SLUG . '&tab=settings', '__return_null' );
 	}
 
@@ -164,6 +167,11 @@ class GSCII_Admin {
 				return is_array( $v ) ? array_values( array_filter( array_map( 'sanitize_key', $v ), 'taxonomy_exists' ) ) : array();
 			},
 		) );
+		GSCII_Indexing::register_settings( $group );
+		GSCII_Alerts::register_settings( $group );
+		GSCII_Traffic::register_settings( $group );
+		GSCII_Empty::register_settings( $group );
+
 		register_setting( $group, 'gscii_auto_enqueue', array(
 			'type'              => 'integer',
 			'default'           => 1,
@@ -324,6 +332,7 @@ class GSCII_Admin {
 		$tabs = array(
 			'dashboard' => array( 'داشبورد', 'grid' ),
 			'bulk'      => array( 'بررسی گروهی', 'layers' ),
+			'issues'    => array( 'مشکلات', 'alert-c' ),
 			'export'    => array( 'خروجی', 'download' ),
 			'settings'  => array( 'تنظیمات', 'settings' ),
 		);
@@ -381,6 +390,9 @@ class GSCII_Admin {
 			<main class="gscii-main">
 				<?php
 				switch ( $tab ) {
+					case 'issues':
+						GSCII_Reports::render_tab();
+						break;
 					case 'export':
 						self::render_export( $st );
 						break;
@@ -484,6 +496,8 @@ class GSCII_Admin {
 		</section>
 		<?php endif; ?>
 
+		<?php GSCII_History::render_dashboard_cards(); ?>
+
 		<section class="gscii-card">
 			<div class="gscii-card-head"><h2>بررسی‌های اخیر</h2></div>
 			<?php $recent = GSCII_Store::recent( 15 ); ?>
@@ -536,13 +550,32 @@ class GSCII_Admin {
 		$pts      = self::post_types();
 		$taxes    = self::taxonomies();
 		$counts   = GSCII_Export::status_counts( $pts, $taxes );
-		$selected = isset( $_GET['status'] ) ? array( sanitize_key( $_GET['status'] ) ) : array( 'notindexed' ); // phpcs:ignore WordPress.Security.NonceVerification
+		$q_reasons = isset( $_GET['reasons'] ) ? array_values( array_intersect( array_map( 'sanitize_key', (array) wp_unslash( $_GET['reasons'] ) ), array_keys( GSCII_Reports::reasons() ) ) ) : array(); // phpcs:ignore WordPress.Security.NonceVerification
+		$q_flag    = isset( $_GET['flag'] ) && isset( GSCII_Reports::flags()[ sanitize_key( $_GET['flag'] ) ] ) ? sanitize_key( $_GET['flag'] ) : ''; // phpcs:ignore WordPress.Security.NonceVerification
+		$by_issue  = $q_reasons || $q_flag;
+		$selected  = isset( $_GET['status'] ) ? array( sanitize_key( $_GET['status'] ) ) : ( $by_issue ? array() : array( 'notindexed' ) ); // phpcs:ignore WordPress.Security.NonceVerification
+		$all_reasons = GSCII_Reports::reasons();
 		?>
 		<form class="gscii-card" id="gscii-export-form" method="get" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 			<input type="hidden" name="action" value="<?php echo esc_attr( GSCII_Export::ACTION ); ?>">
 			<?php wp_nonce_field( GSCII_Export::ACTION, '_wpnonce', false ); ?>
 
 			<div class="gscii-card-head"><h2>خروجی گرفتن از نتایج</h2></div>
+
+			<?php if ( $by_issue ) : ?>
+				<div class="gscii-filter-bar">
+					<span>فیلتر:</span>
+					<?php foreach ( $q_reasons as $rc ) : ?>
+						<input type="hidden" name="reasons[]" value="<?php echo esc_attr( $rc ); ?>">
+						<span class="gscii-badge gscii-tone-<?php echo esc_attr( $all_reasons[ $rc ]['tone'] ); ?>"><?php echo esc_html( $all_reasons[ $rc ]['label'] ); ?></span>
+					<?php endforeach; ?>
+					<?php if ( $q_flag ) : ?>
+						<input type="hidden" name="flag" value="<?php echo esc_attr( $q_flag ); ?>">
+						<span class="gscii-badge gscii-tone-partial"><?php echo esc_html( GSCII_Reports::flags()[ $q_flag ]['label'] ); ?></span>
+					<?php endif; ?>
+					<a href="<?php echo esc_url( self::url( 'export' ) ); ?>">حذف فیلتر</a>
+				</div>
+			<?php endif; ?>
 
 			<fieldset class="gscii-field">
 				<legend>کدام وضعیت؟</legend>
@@ -598,6 +631,9 @@ class GSCII_Admin {
 
 			<div class="gscii-actions">
 				<button type="button" class="gscii-btn gscii-btn-primary gscii-btn-lg" id="gscii-copy-urls"><?php echo self::icon( 'copy', 16 ); // phpcs:ignore ?>کپی آدرس‌ها</button>
+				<?php if ( GSCII_Indexing::available() ) : ?>
+					<button type="button" class="gscii-btn gscii-btn-lg" id="gscii-send-indexing" title="فقط صفحات قابل ایندکسی که در <?php echo esc_attr( GSCII_Indexing::resend_days() ); ?> روز اخیر ارسال نشده‌اند"><?php echo self::icon( 'zap', 16 ); // phpcs:ignore ?>ارسال به Indexing API</button>
+				<?php endif; ?>
 				<button type="submit" name="format" value="txt" class="gscii-btn gscii-btn-lg"><?php echo self::icon( 'download', 16 ); // phpcs:ignore ?>دانلود TXT</button>
 				<button type="submit" name="format" value="csv" class="gscii-btn gscii-btn-lg"><?php echo self::icon( 'download', 16 ); // phpcs:ignore ?>دانلود CSV (اکسل)</button>
 			</div>
@@ -878,7 +914,11 @@ class GSCII_Admin {
 							<input type="hidden" name="gscii_priority_types[]" value="">
 						</div>
 					</fieldset>
+					<?php GSCII_Traffic::render_settings(); ?>
 				</section>
+
+				<?php GSCII_Indexing::render_settings(); ?>
+				<?php GSCII_Alerts::render_settings(); ?>
 
 				<section class="gscii-card">
 					<div class="gscii-card-head" id="gscii-auto-settings"><h2>افزودن خودکار به صف</h2></div>
@@ -1299,6 +1339,18 @@ class GSCII_Admin {
 			'label'   => GSCII_Store::verdict_label( $r['verdict'] )['label'],
 			'cached'  => ! empty( $r['from_cache'] ),
 		), self::quota_payload() ) );
+	}
+
+	/** ذخیره‌ی فوری چند گزینه‌ی خاموش/روشن که بیرون از فرم تنظیمات هستند. */
+	public static function ajax_set_option() {
+		self::guard();
+		$allowed = array( 'gscii_empty_auto' );
+		$key     = isset( $_POST['option'] ) ? sanitize_key( $_POST['option'] ) : '';
+		if ( ! in_array( $key, $allowed, true ) ) {
+			wp_send_json_error( array( 'message' => 'گزینه‌ی نامعتبر.' ) );
+		}
+		update_option( $key, empty( $_POST['value'] ) ? 0 : 1, false );
+		wp_send_json_success( array( 'message' => 'ذخیره شد.' ) );
 	}
 
 	public static function ajax_test() {

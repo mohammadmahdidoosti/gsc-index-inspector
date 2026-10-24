@@ -594,6 +594,56 @@
 	margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--g-border);
 }
 
+/* ---------- Issues ---------- */
+
+.gscii-reasons { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.gscii-reason {
+	display: flex; flex-direction: column; gap: 6px;
+	padding: 14px 16px; border-radius: 12px;
+	border: 1px solid var(--tone-bd); background: var(--g-surface);
+	box-shadow: inset -4px 0 0 var(--tone);
+}
+.gscii-reason header, .gscii-flag-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.gscii-reason header strong, .gscii-flag-head strong { font-size: 14px; }
+.gscii-reason-num { font-size: 20px; font-weight: 700; color: var(--tone, var(--g-text)); }
+.gscii-reason code { align-self: flex-start; font-size: 11px; background: var(--g-surface-2); padding: 1px 6px; border-radius: 5px; color: var(--g-text-2); }
+.gscii-reason p, .gscii-flag p { margin: 0; color: var(--g-text-2); font-size: 12.5px; line-height: 1.9; }
+.gscii-reason-fix b { color: var(--g-text); }
+.gscii-reason footer { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; padding-top: 8px; }
+.gscii-flag-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.gscii-flag { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; border-radius: 12px; background: var(--g-surface-2); border: 1px solid var(--g-border); }
+.gscii-flag .gscii-btn { align-self: flex-start; margin-top: 4px; }
+.gscii-sub { margin: 20px 0 10px; font-size: 14px; }
+.gscii-table-flat { margin: 0; border: 1px solid var(--g-border); border-radius: 10px; }
+.gscii-nums-4 { grid-template-columns: repeat(4, 1fr); margin-bottom: 4px; }
+.gscii-c-pass { color: var(--g-pass); }
+.gscii-c-fail { color: var(--g-fail); }
+.gscii-filter-bar {
+	display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+	margin-bottom: 16px; padding: 10px 14px; border-radius: 10px;
+	background: var(--g-accent-soft); border: 1px solid #cfdcfb; font-size: 13px;
+}
+.gscii-filter-bar a { margin-inline-start: auto; }
+
+/* ---------- Trend chart ---------- */
+
+.gscii-trend-nums { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px; }
+.gscii-trend-nums > div { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-radius: 11px; background: var(--g-surface-2); border: 1px solid var(--g-border); }
+.gscii-chart { display: block; width: 100%; height: 200px; direction: ltr; }
+.gscii-chart-grid { stroke: var(--g-border); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.gscii-chart-hit:hover rect { fill: rgba(26, 110, 245, .06); }
+.gscii-chart-axis { display: flex; justify-content: space-between; direction: ltr; font-size: 11px; color: var(--g-text-3); margin-top: 4px; }
+.gscii-legend { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--g-text-2); }
+.gscii-legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; margin-inline-start: 8px; }
+.gscii-form-grid-2 { grid-template-columns: 1fr 1fr; }
+
+@media (max-width: 900px) {
+	.gscii-flag-grid, .gscii-nums-4, .gscii-trend-nums, .gscii-form-grid-2 { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 600px) {
+	.gscii-flag-grid, .gscii-nums-4, .gscii-trend-nums, .gscii-form-grid-2 { grid-template-columns: 1fr; }
+}
+
 /* ---------- Settings ---------- */
 
 .gscii-steps {

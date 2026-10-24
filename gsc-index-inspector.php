@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       GSC Index Inspector
  * Description:       بررسی وضعیت ایندکس صفحات سایت با Google Search Console URL Inspection API.
- * Version:           1.5.0
+ * Version:           1.6.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Moh
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'GSCII_VERSION', '1.5.0' );
+define( 'GSCII_VERSION', '1.6.0' );
 define( 'GSCII_FILE', __FILE__ );
 define( 'GSCII_DIR', plugin_dir_path( __FILE__ ) );
 define( 'GSCII_URL', plugin_dir_url( __FILE__ ) );
@@ -25,6 +25,12 @@ require_once GSCII_DIR . 'includes/class-gscii-queue.php';
 require_once GSCII_DIR . 'includes/class-gscii-admin.php';
 require_once GSCII_DIR . 'includes/class-gscii-export.php';
 require_once GSCII_DIR . 'includes/class-gscii-auto.php';
+require_once GSCII_DIR . 'includes/class-gscii-reports.php';
+require_once GSCII_DIR . 'includes/class-gscii-history.php';
+require_once GSCII_DIR . 'includes/class-gscii-alerts.php';
+require_once GSCII_DIR . 'includes/class-gscii-indexing.php';
+require_once GSCII_DIR . 'includes/class-gscii-empty.php';
+require_once GSCII_DIR . 'includes/class-gscii-traffic.php';
 
 register_activation_hook( __FILE__, function () {
 	add_option( 'gscii_cache_hours', 24 );
@@ -42,13 +48,21 @@ register_activation_hook( __FILE__, function () {
 register_deactivation_hook( __FILE__, function () {
 	wp_clear_scheduled_hook( GSCII_Queue::HOOK );
 	wp_clear_scheduled_hook( GSCII_Auto::DAILY );
+	wp_clear_scheduled_hook( GSCII_Alerts::WEEKLY );
+	wp_clear_scheduled_hook( GSCII_Alerts::FLUSH );
+	wp_clear_scheduled_hook( GSCII_Traffic::CRON );
 	delete_transient( 'gscii_access_token' );
 } );
 
 add_action( 'plugins_loaded', function () {
 	GSCII_Queue::init();
 	GSCII_Auto::init();
+	GSCII_Alerts::init();
+	GSCII_Indexing::init();
+	GSCII_Traffic::init();
 	if ( is_admin() ) {
+		GSCII_Reports::init();
+		GSCII_Empty::init();
 		GSCII_Admin::init();
 		GSCII_Export::init();
 	}

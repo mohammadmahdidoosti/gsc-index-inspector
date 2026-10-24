@@ -34,9 +34,11 @@ class GSCII_Store {
 	}
 
 	public static function save_post_result( $post_id, array $result ) {
+		$prev = (string) get_post_meta( $post_id, '_gscii_verdict', true );
 		update_post_meta( $post_id, self::META_KEY, $result );
 		update_post_meta( $post_id, '_gscii_verdict', $result['verdict'] );
 		update_post_meta( $post_id, '_gscii_checked', (int) $result['checked_at'] );
+		GSCII_Reports::on_saved( 'post', (int) $post_id, $result, $prev );
 	}
 
 	/* ---------- Arbitrary URL results ---------- */
@@ -224,9 +226,11 @@ class GSCII_Store {
 	}
 
 	public static function save_term_result( $term_id, array $result ) {
+		$prev = (string) get_term_meta( (int) $term_id, '_gscii_verdict', true );
 		update_term_meta( (int) $term_id, self::META_KEY, $result );
 		update_term_meta( (int) $term_id, '_gscii_verdict', $result['verdict'] );
 		update_term_meta( (int) $term_id, '_gscii_checked', (int) $result['checked_at'] );
+		GSCII_Reports::on_saved( 'term', (int) $term_id, $result, $prev );
 	}
 
 	/** آدرس یک آرشیو دسته‌بندی را به term_id تبدیل می‌کند (فقط برای طبقه‌بندی‌های انتخاب‌شده). */
@@ -339,14 +343,27 @@ class GSCII_Store {
 	 * @return array term_id => total
 	 */
 	public static function term_totals( array $taxonomies ) {
-		static $cache = array();
+		$tree = self::term_tree( $taxonomies );
+		return $tree['total'];
+	}
+
+	/**
+	 * ساختار درختی دسته‌ها: total (با زیردسته‌ها)، count مستقیم، parent، has_child.
+	 *
+	 * @return array{total:array,count:array,parent:array,has_child:array}
+	 */
+	private static $tree_cache = array();
+
+	public static function term_tree( array $taxonomies ) {
+		$cache      = &self::$tree_cache;
 		$taxonomies = array_values( array_filter( $taxonomies ) );
 		$key        = implode( ',', $taxonomies );
+		$empty      = array( 'total' => array(), 'count' => array(), 'parent' => array(), 'has_child' => array() );
 		if ( isset( $cache[ $key ] ) ) {
 			return $cache[ $key ];
 		}
 		if ( ! $taxonomies ) {
-			return array();
+			return $empty;
 		}
 		global $wpdb;
 		$in   = implode( ',', array_fill( 0, count( $taxonomies ), '%s' ) );
@@ -354,25 +371,34 @@ class GSCII_Store {
 			"SELECT term_id, parent, count FROM {$wpdb->term_taxonomy} WHERE taxonomy IN ($in)",
 			$taxonomies
 		) );
-		$parent = array();
-		$total  = array();
+		$t = $empty;
 		foreach ( $rows as $r ) {
-			$parent[ (int) $r->term_id ] = (int) $r->parent;
-			$total[ (int) $r->term_id ]  = (int) $r->count;
+			$id                   = (int) $r->term_id;
+			$t['parent'][ $id ]   = (int) $r->parent;
+			$t['count'][ $id ]    = (int) $r->count;
+			$t['total'][ $id ]    = (int) $r->count;
 		}
 		foreach ( $rows as $r ) {
+			if ( (int) $r->parent && isset( $t['count'][ (int) $r->parent ] ) ) {
+				$t['has_child'][ (int) $r->parent ] = true;
+			}
 			$c = (int) $r->count;
 			if ( ! $c ) {
 				continue;
 			}
 			$p     = (int) $r->parent;
 			$guard = 0;
-			while ( $p && isset( $total[ $p ] ) && $guard++ < 50 ) {
-				$total[ $p ] += $c;
-				$p            = $parent[ $p ];
+			while ( $p && isset( $t['total'][ $p ] ) && $guard++ < 50 ) {
+				$t['total'][ $p ] += $c;
+				$p                 = $t['parent'][ $p ];
 			}
 		}
-		return $cache[ $key ] = $total;
+		return $cache[ $key ] = $t;
+	}
+
+	/** کش درخت دسته‌ها را پاک کن (بعد از تغییر تعداد محصولات در همان درخواست). */
+	public static function flush_term_tree() {
+		self::$tree_cache = array();
 	}
 
 	/** دسته‌هایی که بررسی می‌شوند: غیرخالی (با احتساب زیردسته‌ها)، یا همه اگر گزینه‌اش روشن باشد. */
