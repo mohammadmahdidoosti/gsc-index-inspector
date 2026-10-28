@@ -212,6 +212,7 @@
 	color: #1b3f86;
 }
 .gscii-banner > div { flex: 1; min-width: 220px; }
+.gscii-banner-bad { background: var(--g-fail-bg); border-color: var(--g-fail-bd); color: #7a1416; line-height: 1.9; }
 
 /* ---------- Buttons & inputs ---------- */
 

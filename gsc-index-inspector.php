@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       GSC Index Inspector
  * Description:       بررسی وضعیت ایندکس صفحات سایت با Google Search Console URL Inspection API.
- * Version:           1.6.0
+ * Version:           1.6.1
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Moh
@@ -14,7 +14,24 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'GSCII_VERSION', '1.6.0' );
+// نسخه‌ی دیگری از همین افزونه (مثلاً پوشه‌ی تغییرنام‌داده‌شده) قبلاً بارگذاری شده:
+// بارگذاری دوباره خطای مرگبار می‌دهد؛ فقط هشدار بده که یکی غیرفعال شود.
+if ( defined( 'GSCII_VERSION' ) ) {
+	$gscii_dup_file = __FILE__;
+	add_action( 'admin_notices', function () use ( $gscii_dup_file ) {
+		if ( ! current_user_can( 'activate_plugins' ) ) {
+			return;
+		}
+		printf(
+			'<div class="notice notice-error"><p><strong>ایندکس گوگل (GSC Index Inspector):</strong> دو نسخه از این افزونه هم‌زمان فعال است (نسخه‌ی در حال اجرا: %1$s). یکی را از صفحه‌ی افزونه‌ها <b>غیرفعال</b> کنید. نسخه‌ی دوم: <code>%2$s</code></p></div>',
+			esc_html( GSCII_VERSION ),
+			esc_html( plugin_basename( $gscii_dup_file ) )
+		);
+	} );
+	return;
+}
+
+define( 'GSCII_VERSION', '1.6.1' );
 define( 'GSCII_FILE', __FILE__ );
 define( 'GSCII_DIR', plugin_dir_path( __FILE__ ) );
 define( 'GSCII_URL', plugin_dir_url( __FILE__ ) );
@@ -43,6 +60,10 @@ register_activation_hook( __FILE__, function () {
 	add_option( 'gscii_recheck_days', 30 );
 	add_option( 'gscii_priority_types', array() );
 	add_option( 'gscii_queue', array(), '', false );
+	// بعد از فعال‌سازی دوباره، زمان‌بندی‌ها را بلافاصله برگردان (صف پر نباید منتظر بماند).
+	if ( class_exists( 'GSCII_Queue' ) ) {
+		GSCII_Queue::heal_schedule();
+	}
 } );
 
 register_deactivation_hook( __FILE__, function () {

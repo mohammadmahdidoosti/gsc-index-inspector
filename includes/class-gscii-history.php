@@ -14,13 +14,39 @@ class GSCII_History {
 	const KEEP_DAYS   = 400;
 	const KEEP_DROPS  = 300;
 
+	/**
+	 * کلید روز به تقویم میلادی و منطقه‌ی زمانی سایت. عمداً از wp_date استفاده نمی‌شود، چون
+	 * افزونه‌های تاریخ شمسی آن را فیلتر می‌کنند و کلیدها شمسی (۱۴۰۵-…) می‌شدند.
+	 */
+	public static function day( $ts = null ) {
+		$d = new DateTime( '@' . ( null === $ts ? time() : (int) $ts ) );
+		$d->setTimezone( wp_timezone() );
+		return $d->format( 'Y-m-d' );
+	}
+
+	/** timestamp ظهر یک روز (کلید میلادی) به وقت سایت، برای نمایش با wp_date. */
+	private static function ts( $day ) {
+		$d = DateTime::createFromFormat( 'Y-m-d H:i', $day . ' 12:00', wp_timezone() );
+		return $d ? $d->getTimestamp() : time();
+	}
+
 	private static function today() {
-		return wp_date( 'Y-m-d' );
+		return self::day();
 	}
 
 	public static function get() {
 		$h = get_option( self::OPT_HISTORY, array() );
-		return is_array( $h ) ? $h : array();
+		if ( ! is_array( $h ) ) {
+			return array();
+		}
+		// کلیدهای شمسیِ نسخه‌های قبلی (سال کمتر از ۱۹۰۰) کنار گذاشته می‌شوند.
+		$clean = array_filter( $h, function ( $k ) {
+			return (int) substr( (string) $k, 0, 4 ) >= 1900;
+		}, ARRAY_FILTER_USE_KEY );
+		if ( count( $clean ) !== count( $h ) ) {
+			update_option( self::OPT_HISTORY, $clean, false );
+		}
+		return $clean;
 	}
 
 	/** عکس امروز از آمار (اگر هنوز گرفته نشده یا force). */
@@ -102,7 +128,7 @@ class GSCII_History {
 	/** مجموع ورود/خروج در n روز اخیر. */
 	public static function movement( $days = 7 ) {
 		$h    = self::get();
-		$from = wp_date( 'Y-m-d', time() - ( $days - 1 ) * DAY_IN_SECONDS );
+		$from = self::day( time() - ( $days - 1 ) * DAY_IN_SECONDS );
 		$out  = array( 'gained' => 0, 'dropped' => 0 );
 		foreach ( $h as $day => $row ) {
 			if ( $day >= $from ) {
@@ -115,7 +141,7 @@ class GSCII_History {
 
 	/** مقدار یک فیلد در n روز پیش (نزدیک‌ترین روز موجود). */
 	public static function value_ago( $field, $days ) {
-		$target = wp_date( 'Y-m-d', time() - $days * DAY_IN_SECONDS );
+		$target = self::day( time() - $days * DAY_IN_SECONDS );
 		$best   = null;
 		foreach ( self::get() as $day => $row ) {
 			if ( $day <= $target && isset( $row[ $field ] ) ) {
@@ -186,14 +212,14 @@ class GSCII_History {
 				?>
 				<g class="gscii-chart-hit">
 					<rect x="<?php echo esc_attr( $cx - ( $w / $n ) / 2 ); ?>" y="0" width="<?php echo esc_attr( $w / $n ); ?>" height="<?php echo (int) $ht; ?>" fill="transparent"/>
-					<title><?php echo esc_html( wp_date( 'j F', strtotime( $day . ' 12:00' ) ) . ' — ایندکس: ' . number_format_i18n( (int) $row['pass'] ) . '، ایندکس‌نشده: ' . number_format_i18n( (int) $row['notidx'] ) ); ?></title>
+					<title><?php echo esc_html( wp_date( 'j F', self::ts( $day ) ) . ' — ایندکس: ' . number_format_i18n( (int) $row['pass'] ) . '، ایندکس‌نشده: ' . number_format_i18n( (int) $row['notidx'] ) ); ?></title>
 				</g>
 				<?php
 				$i++;
 			endforeach;
 			?>
 		</svg>
-		<div class="gscii-chart-axis"><span><?php echo esc_html( wp_date( 'j F', strtotime( $days_[0] . ' 12:00' ) ) ); ?></span><span><?php echo esc_html( wp_date( 'j F', strtotime( end( $days_ ) . ' 12:00' ) ) ); ?></span></div>
+		<div class="gscii-chart-axis"><span><?php echo esc_html( wp_date( 'j F', self::ts( $days_[0] ) ) ); ?></span><span><?php echo esc_html( wp_date( 'j F', self::ts( end( $days_ ) ) ) ); ?></span></div>
 		<?php
 		return ob_get_clean();
 	}

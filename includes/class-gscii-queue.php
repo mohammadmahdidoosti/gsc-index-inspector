@@ -17,6 +17,7 @@ class GSCII_Queue {
 	public static function init() {
 		add_filter( 'cron_schedules', array( __CLASS__, 'schedules' ) );
 		add_action( self::HOOK, array( __CLASS__, 'process' ) );
+		add_action( 'init', array( __CLASS__, 'heal_schedule' ), 20 );
 		foreach ( array( 'gscii_smart_priority', 'gscii_priority_types', 'gscii_terms_first', 'gscii_priority_traffic', 'gscii_priority_sales' ) as $opt ) {
 			add_action( 'update_option_' . $opt, array( __CLASS__, 'resort' ), 10, 0 );
 			add_action( 'add_option_' . $opt, array( __CLASS__, 'resort' ), 10, 0 );
@@ -357,6 +358,31 @@ class GSCII_Queue {
 		update_option( self::OPTION, array(), false );
 		update_option( 'gscii_queue_total', 0, false );
 		wp_clear_scheduled_hook( self::HOOK );
+	}
+
+	/**
+	 * اگر صف پر است ولی زمان‌بندی ندارد (مثلاً بعد از غیرفعال/فعال کردن افزونه یا تغییر نام پوشه)،
+	 * دوباره زمان‌بندی کن. ارزان است: فقط یک get_option و wp_next_scheduled.
+	 */
+	public static function heal_schedule() {
+		if ( ! wp_next_scheduled( self::HOOK ) && self::count() ) {
+			wp_schedule_event( time() + 5, 'gscii_minute', self::HOOK );
+		}
+	}
+
+	/**
+	 * سلامت WP-Cron: اگر رویداد صف بیش از ۱۰ دقیقه از موعدش گذشته و اجرا نشده، WP-Cron سایت کار نمی‌کند
+	 * (مثلاً DISABLE_WP_CRON روشن است و کرون سرور تعریف نشده).
+	 *
+	 * @return int ثانیه‌های عقب‌افتادگی (۰ = سالم)
+	 */
+	public static function cron_lag() {
+		$next = wp_next_scheduled( self::HOOK );
+		if ( ! $next || ! self::count() ) {
+			return 0;
+		}
+		$lag = time() - (int) $next;
+		return $lag > 10 * MINUTE_IN_SECONDS ? $lag : 0;
 	}
 
 	public static function ensure_scheduled() {

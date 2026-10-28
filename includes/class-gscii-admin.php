@@ -656,6 +656,26 @@ class GSCII_Admin {
 		self::setup_banner( $st );
 		$q = self::queue_payload();
 		?>
+		<?php
+		$lag = GSCII_Queue::cron_lag();
+		if ( $lag ) :
+			?>
+			<div class="gscii-banner gscii-banner-bad">
+				<?php echo self::icon( 'alert', 20 ); // phpcs:ignore ?>
+				<div>
+					<strong>زمان‌بندی وردپرس (WP-Cron) اجرا نمی‌شود.</strong>
+					صف <?php echo esc_html( human_time_diff( time() - $lag ) ); ?> است که منتظر اجراست.
+					<?php if ( defined( 'DISABLE_WP_CRON' ) && DISABLE_WP_CRON ) : ?>
+						در wp-config.php مقدار <code>DISABLE_WP_CRON</code> روشن است؛ باید روی سرور (هاست / DirectAdmin ← Cron Jobs) یک کرون هر دقیقه تعریف شود:
+					<?php else : ?>
+						سایت بازدید کافی برای اجرای WP-Cron ندارد یا درخواست‌های داخلی مسدود است؛ بهتر است کرون سرور تعریف شود:
+					<?php endif; ?>
+					<code dir="ltr" style="display:block;margin-top:6px">* * * * * wget -q -O - <?php echo esc_html( site_url( 'wp-cron.php?doing_wp_cron' ) ); ?> &gt;/dev/null 2&gt;&amp;1</code>
+					تا آن موقع می‌توانید «اجرای سریع در مرورگر» را بزنید.
+				</div>
+			</div>
+		<?php endif; ?>
+
 		<section class="gscii-card gscii-progress-card" id="gscii-progress" data-state="<?php echo $q['remaining_raw'] ? 'queued' : 'idle'; ?>">
 			<div class="gscii-card-head">
 				<h2>وضعیت صف</h2>
@@ -1444,7 +1464,7 @@ class GSCII_Admin {
 		} elseif ( GSCII_Store::quota_left() <= 0 ) {
 			$state = 'منتظر شارژ سهمیه (' . GSCII_Store::quota_reset_label() . ')';
 		} else {
-			$state = $scheduled ? 'در حال اجرا با WP-Cron' : 'در انتظار';
+			$state = ! $scheduled ? 'در انتظار' : ( GSCII_Queue::cron_lag() ? 'متوقف: WP-Cron اجرا نمی‌شود' : 'در حال اجرا با WP-Cron' );
 		}
 		return array_merge( array(
 			'remaining_raw' => $remaining,
