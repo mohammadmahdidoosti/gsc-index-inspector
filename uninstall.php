@@ -45,6 +45,9 @@ foreach ( array(
 	'gscii_priority_traffic',
 	'gscii_priority_sales',
 	'gscii_traffic_meta',
+	'gscii_sitemap_fix',
+	'gscii_sitemap_flushed',
+	'gscii_sitemap_v',
 ) as $opt ) {
 	delete_option( $opt );
 }
@@ -71,3 +74,4 @@ wp_clear_scheduled_hook( 'gscii_daily_scan' );
 wp_clear_scheduled_hook( 'gscii_weekly_report' );
 wp_clear_scheduled_hook( 'gscii_alert_flush' );
 wp_clear_scheduled_hook( 'gscii_traffic_fetch' );
+wp_clear_scheduled_hook( 'gscii_sitemap_flush' );

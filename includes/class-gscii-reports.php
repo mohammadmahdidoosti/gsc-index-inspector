@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class GSCII_Reports {
 
-	const REASON_VERSION = 1;
+	const REASON_VERSION = 2;
 
 	public static function init() {
 		add_action( 'wp_ajax_gscii_issue_requeue', array( __CLASS__, 'ajax_requeue' ) );
@@ -137,7 +137,7 @@ class GSCII_Reports {
 
 	public static function flags() {
 		return array(
-			'nositemap' => array( 'label' => 'خارج از سایت‌مپ', 'why' => 'گوگل این آدرس را در هیچ سایت‌مپ ارسالی ندیده.', 'fix' => 'سایت‌مپ Rank Math را بررسی کنید که این نوع محتوا/دسته در آن فعال باشد.' ),
+			'nositemap' => array( 'label' => 'خارج از سایت‌مپ', 'why' => 'گوگل این صفحه را خزیده ولی آن را در هیچ سایت‌مپ ارسالی ندیده.', 'fix' => 'سایت‌مپ Rank Math را بررسی کنید که این نوع محتوا/دسته در آن فعال باشد؛ گوگل سایت‌مپ را هر چند روز یک بار می‌خواند.' ),
 			'canonical' => array( 'label' => 'canonical متفاوت', 'why' => 'canonical انتخابی گوگل با canonical صفحه فرق دارد.', 'fix' => 'canonical صفحه و صفحات تکراری را بررسی کنید.' ),
 			'rich'      => array( 'label' => 'خطای Rich Results', 'why' => 'داده‌ی ساختاریافته (مثلاً Product) ایراد دارد.', 'fix' => 'فیلدهای گزارش‌شده را در اسکیمای محصول کامل کنید.' ),
 		);
@@ -226,7 +226,8 @@ class GSCII_Reports {
 	/** پرچم‌های یک نتیجه. */
 	public static function flags_for( array $r ) {
 		$f = array();
-		if ( empty( $r['sitemap'] ) ) {
+		// گوگل فقط برای صفحاتی که خزیده سایت‌مپ را گزارش می‌کند؛ برای «ناشناخته»ها این فیلد همیشه خالی است.
+		if ( empty( $r['sitemap'] ) && self::crawled( $r ) ) {
 			$f[] = 'nositemap';
 		}
 		if ( ! empty( $r['googleCanonical'] ) && ! empty( $r['userCanonical'] ) && self::canon_differs( $r ) ) {
@@ -508,6 +509,7 @@ class GSCII_Reports {
 
 		<?php GSCII_Indexing::render_card(); ?>
 		<?php GSCII_Empty::render_card(); ?>
+		<?php GSCII_Sitemap::render_card(); ?>
 
 		<section class="gscii-card">
 			<div class="gscii-card-head"><h2>سایر بررسی‌ها</h2></div>
